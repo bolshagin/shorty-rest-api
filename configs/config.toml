@@ -1,0 +1,7 @@
+bind_addr = ":8080"
+log_level = "debug"
+
+[store]
+dbname = "restapi_dev"
+user = "dev"
+password = "12345"
