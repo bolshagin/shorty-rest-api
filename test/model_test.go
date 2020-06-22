@@ -11,7 +11,7 @@ import (
 )
 
 func TestCreateUser(t *testing.T) {
-	data := []byte(`{"email":"example@example.ru","password":"123"}`)
+	data := []byte(`{"email":"example@example.ru","password":"123456"}`)
 
 	client := http.Client{
 		Timeout: 5 * time.Second,

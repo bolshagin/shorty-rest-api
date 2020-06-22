@@ -8,7 +8,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
-	"io"
 	"net/http"
 )
 
@@ -66,19 +65,12 @@ func (s *APIServer) configureDB() error {
 }
 
 func (s *APIServer) configureRouter() {
-	s.router.HandleFunc("/hello", s.handleHello())
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
-}
-
-func (s *APIServer) handleHello() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, "Hello from Handler")
-	}
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 	type request struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
@@ -86,6 +78,7 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 		req := &request{}
 		s.logger.Info("handle /users -> create user")
 		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.logger.Error(err)
 			s.error(w, r, http.StatusBadRequest, err)
 			return
 		}
@@ -96,11 +89,13 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 
 		u, err := u.CreateUser(s.db)
 		if err != nil {
+			s.logger.Error(err)
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}
 
 		u.ClearPassword()
+		s.logger.Info(fmt.Sprintf("user with email '%s' successfully created", u.Email))
 		s.respond(w, r, http.StatusCreated, u)
 	}
 }

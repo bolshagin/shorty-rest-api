@@ -5,16 +5,22 @@ import (
 	b64 "encoding/base64"
 	"errors"
 	"fmt"
+	validation "github.com/go-ozzo/ozzo-validation"
+	"github.com/go-ozzo/ozzo-validation/is"
 )
 
 type User struct {
-	ID int `json:"id"`
-	Email string `json:"email"`
-	Password string `json:"password,omitempty"`
+	UserID            int    `json:"id"`
+	Email             string `json:"email"`
+	Password          string `json:"password,omitempty"`
 	EncryptedPassword string `json:"-"`
 }
 
 func (u *User) CreateUser(db *sql.DB) (*User, error) {
+	if err := u.Validate(); err != nil {
+		return nil, err
+	}
+
 	if err := u.BeforeCreate(); err != nil {
 		return nil, err
 	}
@@ -29,7 +35,7 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 		return nil, err
 	}
 
-	if err := db.QueryRow("SELECT LAST_INSERT_ID()").Scan(&u.ID); err != nil {
+	if err := db.QueryRow("SELECT LAST_INSERT_ID()").Scan(&u.UserID); err != nil {
 		return nil, err
 	}
 
@@ -47,6 +53,13 @@ func (u *User) BeforeCreate() error {
 	return nil
 }
 
+func (u *User) Validate() error {
+	return validation.ValidateStruct(
+		u,
+		validation.Field(&u.Email, validation.Required, is.Email),
+		validation.Field(&u.Password, validation.Required, validation.Length(6, 100)))
+}
+
 func encryptString(email, password string) (string, error) {
 	pair := email + ":" + password
 	if len(pair) == 0 {
@@ -55,6 +68,6 @@ func encryptString(email, password string) (string, error) {
 	return b64.StdEncoding.EncodeToString([]byte(pair)), nil
 }
 
-func (u *User) ClearPassword () {
+func (u *User) ClearPassword() {
 	u.Password = ""
 }
