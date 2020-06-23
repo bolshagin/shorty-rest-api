@@ -18,12 +18,12 @@ type APIServer struct {
 	db     *sql.DB
 }
 
-func New(config *Config, db *sql.DB) *APIServer {
+func New(config *Config) *APIServer {
 	return &APIServer{
 		config: config,
 		logger: logrus.New(),
 		router: mux.NewRouter(),
-		db:     db,
+		db:     &sql.DB{},
 	}
 }
 
@@ -66,6 +66,7 @@ func (s *APIServer) configureDB() error {
 
 func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
+	s.router.HandleFunc("/links", s.handleLinksCreate()).Methods("POST")
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
@@ -97,6 +98,36 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 		u.ClearPassword()
 		s.logger.Info(fmt.Sprintf("user with email '%s' successfully created", u.Email))
 		s.respond(w, r, http.StatusCreated, u)
+	}
+}
+
+func (s *APIServer) handleLinksCreate() http.HandlerFunc {
+	type request struct {
+		LongURL string `json:"long_url"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		req := &request{}
+
+		s.logger.Info("handle /links -> create link")
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusBadRequest, err)
+			return
+		}
+
+		l := &model.Link{}
+		l.LongURL = req.LongURL
+
+		l, err := l.CreateLink(s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.logger.Info(fmt.Sprintf("link with url '%s' successfully created", l.LongURL))
+		s.respond(w, r, http.StatusCreated, l)
 	}
 }
 

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"github.com/BurntSushi/toml"
 	"github.com/bolshagin/shorty-rest-api/app"
@@ -25,7 +24,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	s := apiserver.New(config, &sql.DB{})
+	s := apiserver.New(config)
 	if err := s.Start(); err != nil {
 		log.Fatal(err)
 	}

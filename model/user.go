@@ -25,12 +25,21 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 		return nil, err
 	}
 
+	b, err := u.userExists(u.Email, db)
+	if err != nil {
+		return nil, err
+	}
+
+	if b {
+		return nil, errors.New(fmt.Sprintf("user with email '%s' already exists", u.Email))
+	}
+
 	query := fmt.Sprintf("INSERT INTO Users (email, password, encrypted_password) VALUES ('%s', '%s', '%s')",
 		u.Email,
 		u.Password,
 		u.EncryptedPassword)
 
-	_, err := db.Exec(query)
+	_, err = db.Exec(query)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +49,20 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 	}
 
 	return u, nil
+}
+
+func (u *User) userExists(email string, db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(1) FROM users WHERE email = ?",
+		email).Scan(&count); err != nil {
+		return false, err
+	}
+
+	if count > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (u *User) BeforeCreate() error {
