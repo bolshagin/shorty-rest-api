@@ -3,8 +3,10 @@ package apiserver
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/bolshagin/shorty-rest-api/model"
+	"github.com/bolshagin/shorty-rest-api/tools"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -67,6 +69,7 @@ func (s *APIServer) configureDB() error {
 func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
 	s.router.HandleFunc("/links", s.handleLinksCreate()).Methods("POST")
+	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
@@ -128,6 +131,34 @@ func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 
 		s.logger.Info(fmt.Sprintf("link with url '%s' successfully created", l.LongURL))
 		s.respond(w, r, http.StatusCreated, l)
+	}
+}
+
+func (s *APIServer) handleRedirect() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id, err := tools.Decode(vars["short_url"])
+		if err != nil {
+			s.error(w, r, http.StatusBadRequest, errors.New("cannot decode short url"))
+			return
+		}
+
+		l := &model.Link{}
+		l, err = l.Find(id, s.db)
+
+		if err != nil {
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		c := &model.Click{}
+		_, err = c.CreateClick(id, s.db)
+		if err != nil {
+			s.logger.Error("cannot create click for short url")
+		}
+
+		s.logger.Info(fmt.Sprintf("redirecting to '%s'", l.LongURL))
+		http.Redirect(w, r, l.LongURL, http.StatusMovedPermanently)
 	}
 }
 

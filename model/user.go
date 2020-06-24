@@ -25,7 +25,7 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 		return nil, err
 	}
 
-	b, err := u.userExists(u.Email, db)
+	b, err := u.UserExists(u.Email, db)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 	return u, nil
 }
 
-func (u *User) userExists(email string, db *sql.DB) (bool, error) {
+func (u *User) UserExists(email string, db *sql.DB) (bool, error) {
 	var count int
 	if err := db.QueryRow("SELECT COUNT(1) FROM users WHERE email = ?",
 		email).Scan(&count); err != nil {
