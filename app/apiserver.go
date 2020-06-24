@@ -71,6 +71,8 @@ func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
 	s.router.HandleFunc("/links", s.handleLinksCreate()).Methods("POST")
 	s.router.HandleFunc("/links/{userid}", s.handleGetAllLinks()).Methods("GET")
+	s.router.HandleFunc("/link", s.handleGetLinkInfo()).Methods("GET")
+	s.router.HandleFunc("/link", s.handleLinkDelete()).Methods("DELETE")
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
 }
 
@@ -175,6 +177,69 @@ func (s *APIServer) handleGetAllLinks() http.HandlerFunc {
 		u.ClearPassword()
 
 		s.respond(w, r, http.StatusOK, u)
+	}
+}
+
+func (s *APIServer) handleGetLinkInfo() http.HandlerFunc {
+	type request struct {
+		UserID   int    `json:"userid"`
+		ShortURL string `json:"short_url"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		req := &request{}
+
+		s.logger.Info("handle /link -> try to find link info by userid and short_url")
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusBadRequest, err)
+			return
+		}
+
+		l := &model.Link{}
+		l, err := l.FindByUserIDAndShort(req.UserID, req.ShortURL, s.db)
+
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.logger.Info(
+			fmt.Sprintf("link with short_url '%v' and userid '%v' are founded", req.ShortURL, req.UserID),
+		)
+		s.respond(w, r, http.StatusOK, l)
+	}
+}
+
+func (s *APIServer) handleLinkDelete() http.HandlerFunc {
+	type request struct {
+		UserID   int    `json:"userid"`
+		ShortURL string `json:"short_url"`
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		req := &request{}
+
+		s.logger.Info("handle /link DELETE -> try to delete link by userid and short_url")
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusBadRequest, err)
+			return
+		}
+
+		l := &model.Link{}
+		if err := l.DeleteByUserIDAndShort(req.UserID, req.ShortURL, s.db); err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.logger.Info(
+			fmt.Sprintf("link with short_url '%v' and userid '%v' has been deleted", req.ShortURL, req.UserID),
+		)
+		s.respond(w, r, http.StatusOK, map[string]string{"result": "deleted"})
+
 	}
 }
 

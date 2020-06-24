@@ -14,7 +14,7 @@ type User struct {
 	Email             string `json:"email"`
 	Password          string `json:"password,omitempty"`
 	EncryptedPassword string `json:"-"`
-	Links             []Link `json:"links"`
+	Links             []Link `json:"links,omitempty"`
 }
 
 func (u *User) CreateUser(db *sql.DB) (*User, error) {
