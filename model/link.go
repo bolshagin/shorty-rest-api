@@ -6,20 +6,22 @@ import (
 	"github.com/bolshagin/shorty-rest-api/tools"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/go-ozzo/ozzo-validation/is"
+	"net/http"
 )
 
 type Link struct {
-	LinkID   int    `json:"linkid"`
+	LinkID   int    `json:"linkid,omitempty"`
 	LongURL  string `json:"long_url"`
 	ShortURL string `json:"short_url"`
+	UserID   int    `json:"userid,omitempty"`
 }
 
-func (l *Link) CreateLink(db *sql.DB) (*Link, error) {
+func (l *Link) CreateLink(db *sql.DB, r *http.Request) (*Link, error) {
 	if err := l.Validate(); err != nil {
 		return nil, err
 	}
 
-	_, err := db.Exec("INSERT INTO links (long_url) VALUES (?)", l.LongURL)
+	_, err := db.Exec("INSERT INTO links (long_url, userid) VALUES (?, ?)", l.LongURL, l.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +30,7 @@ func (l *Link) CreateLink(db *sql.DB) (*Link, error) {
 		return nil, err
 	}
 
-	l.ShortURL = tools.Encode(l.LinkID)
+	l.ShortURL = "http://" + r.Host + "/" + tools.Encode(l.LinkID)
 	db.QueryRow("UPDATE links SET short_url = ? WHERE linkid = ?", l.ShortURL, l.LinkID)
 
 	return l, nil

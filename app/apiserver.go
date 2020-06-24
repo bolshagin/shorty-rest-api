@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 	"net/http"
+	"strconv"
 )
 
 type APIServer struct {
@@ -69,6 +70,7 @@ func (s *APIServer) configureDB() error {
 func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
 	s.router.HandleFunc("/links", s.handleLinksCreate()).Methods("POST")
+	s.router.HandleFunc("/links/{userid}", s.handleGetAllLinks()).Methods("GET")
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
 }
 
@@ -106,6 +108,7 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 
 func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 	type request struct {
+		UserID  int    `json:"userid"`
 		LongURL string `json:"long_url"`
 	}
 
@@ -119,10 +122,19 @@ func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 			return
 		}
 
+		u := &model.User{}
+		u, err := u.Find(req.UserID, s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
 		l := &model.Link{}
+		l.UserID = u.UserID
 		l.LongURL = req.LongURL
 
-		l, err := l.CreateLink(s.db)
+		l, err = l.CreateLink(s.db, r)
 		if err != nil {
 			s.logger.Error(err)
 			s.error(w, r, http.StatusInternalServerError, err)
@@ -131,6 +143,38 @@ func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 
 		s.logger.Info(fmt.Sprintf("link with url '%s' successfully created", l.LongURL))
 		s.respond(w, r, http.StatusCreated, l)
+	}
+}
+
+func (s *APIServer) handleGetAllLinks() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		id, err := strconv.Atoi(vars["userid"])
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusBadRequest, errors.New("invalid user id"))
+			return
+		}
+
+		s.logger.Info(fmt.Sprintf("handle /links/{userid} -> try to find all links by given userid '%v'", id))
+
+		u := &model.User{}
+		u, err = u.Find(id, s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		u, err = u.FindAllLinks(id, s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		u.ClearPassword()
+
+		s.respond(w, r, http.StatusOK, u)
 	}
 }
 
