@@ -74,6 +74,7 @@ func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/link", s.handleGetLinkInfo()).Methods("GET")
 	s.router.HandleFunc("/link", s.handleLinkDelete()).Methods("DELETE")
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
+	s.router.HandleFunc("/stats/top", s.handleGetLinksTop()).Methods("GET")
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
@@ -180,6 +181,20 @@ func (s *APIServer) handleGetAllLinks() http.HandlerFunc {
 	}
 }
 
+func (s *APIServer) handleGetLinksTop() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s.logger.Info("handle /stats/top -> try to find top 20 redirecting links")
+		links, err := model.FindLinksTop(s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
+		s.respond(w, r, http.StatusOK, links)
+	}
+}
+
 func (s *APIServer) handleGetLinkInfo() http.HandlerFunc {
 	type request struct {
 		UserID   int    `json:"userid"`
@@ -197,7 +212,7 @@ func (s *APIServer) handleGetLinkInfo() http.HandlerFunc {
 		}
 
 		l := &model.Link{}
-		l, err := l.FindByUserIDAndShort(req.UserID, req.ShortURL, s.db)
+		l, err := l.FindLinkClicks(req.UserID, req.ShortURL, s.db)
 
 		if err != nil {
 			s.logger.Error(err)
@@ -267,7 +282,7 @@ func (s *APIServer) handleRedirect() http.HandlerFunc {
 		}
 
 		s.logger.Info(fmt.Sprintf("redirecting to '%s'", l.LongURL))
-		http.Redirect(w, r, l.LongURL, http.StatusMovedPermanently)
+		http.Redirect(w, r, l.LongURL, http.StatusPermanentRedirect)
 	}
 }
 

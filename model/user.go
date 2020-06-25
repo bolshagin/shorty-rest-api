@@ -10,11 +10,11 @@ import (
 )
 
 type User struct {
-	UserID            int    `json:"userid"`
-	Email             string `json:"email"`
-	Password          string `json:"password,omitempty"`
-	EncryptedPassword string `json:"-"`
-	Links             []Link `json:"links,omitempty"`
+	UserID        int    `json:"userid"`
+	Email         string `json:"email"`
+	Password      string `json:"password,omitempty"`
+	EncryptedPair string `json:"-"`
+	Links         []Link `json:"links,omitempty"`
 }
 
 func (u *User) CreateUser(db *sql.DB) (*User, error) {
@@ -35,10 +35,11 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 		return nil, errors.New(fmt.Sprintf("user with email '%s' already exists", u.Email))
 	}
 
-	query := fmt.Sprintf("INSERT INTO Users (email, password, encrypted_password) VALUES ('%s', '%s', '%s')",
+	query := fmt.Sprintf(
+		"INSERT INTO Users (email, password, encrypted_pair) VALUES ('%s', '%s', '%s')",
 		u.Email,
 		u.Password,
-		u.EncryptedPassword)
+		u.EncryptedPair)
 
 	_, err = db.Exec(query)
 	if err != nil {
@@ -67,8 +68,8 @@ func (u *User) UserExistsByEmail(email string, db *sql.DB) (bool, error) {
 }
 
 func (u *User) Find(id int, db *sql.DB) (*User, error) {
-	if err := db.QueryRow("SELECT userid, email, password, encrypted_password FROM users WHERE userid = ?",
-		id).Scan(&u.UserID, &u.Email, &u.Password, &u.EncryptedPassword); err != nil {
+	if err := db.QueryRow("SELECT userid, email, password, encrypted_pair FROM users WHERE userid = ?",
+		id).Scan(&u.UserID, &u.Email, &u.Password, &u.EncryptedPair); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, errors.New("user not found")
 		}
@@ -104,7 +105,7 @@ func (u *User) BeforeCreate() error {
 		if err != nil {
 			return err
 		}
-		u.EncryptedPassword = enc
+		u.EncryptedPair = enc
 	}
 	return nil
 }

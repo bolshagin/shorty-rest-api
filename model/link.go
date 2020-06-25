@@ -12,8 +12,8 @@ import (
 
 type Link struct {
 	LinkID   int    `json:"linkid,omitempty"`
-	LongURL  string `json:"long_url"`
-	ShortURL string `json:"short_url"`
+	LongURL  string `json:"long_url,omitempty"`
+	ShortURL string `json:"short_url,omitempty"`
 	UserID   int    `json:"userid,omitempty"`
 	Clicks   int    `json:"n_clicks,omitempty"`
 }
@@ -50,11 +50,12 @@ func (l *Link) Find(id int, db *sql.DB) (*Link, error) {
 	return l, nil
 }
 
-func (l *Link) FindByUserIDAndShort(id int, short string, db *sql.DB) (*Link, error) {
-	query := fmt.Sprintf("SELECT l.linkid, MAX(l.long_url), MAX(short_url), MAX(l.userid), COUNT(l.linkid) "+
-		"FROM links l LEFT JOIN clicks c ON l.linkid = c.linkid "+
-		"WHERE l.userid = %v AND l.short_url = '%v'"+
-		"GROUP BY l.linkid", id, short)
+func (l *Link) FindLinkClicks(id int, short string, db *sql.DB) (*Link, error) {
+	query := fmt.Sprintf(
+		"SELECT l.linkid, MAX(l.long_url), MAX(short_url), MAX(l.userid), COUNT(l.linkid) "+
+			"FROM links l LEFT JOIN clicks c ON l.linkid = c.linkid "+
+			"WHERE l.userid = %v AND l.short_url = '%v'"+
+			"GROUP BY l.linkid", id, short)
 
 	if err := db.QueryRow(query).Scan(&l.LinkID, &l.LongURL, &l.ShortURL, &l.UserID, &l.Clicks); err != nil {
 		if err == sql.ErrNoRows {
@@ -63,6 +64,29 @@ func (l *Link) FindByUserIDAndShort(id int, short string, db *sql.DB) (*Link, er
 		return nil, err
 	}
 	return l, nil
+}
+
+func FindLinksTop(db *sql.DB) (*[]Link, error) {
+	var links []Link
+	rows, err := db.Query(
+		"SELECT l.long_url, COUNT(l.linkid) FROM links l JOIN clicks c ON l.linkid = c.linkid " +
+			"GROUP BY l.long_url " +
+			"ORDER BY COUNT(l.linkid) DESC " +
+			"LIMIT 20")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var l Link
+		if err := rows.Scan(&l.LongURL, &l.Clicks); err != nil {
+			return nil, err
+		}
+		links = append(links, l)
+	}
+
+	return &links, nil
 }
 
 func (l *Link) DeleteByUserIDAndShort(id int, short string, db *sql.DB) error {
