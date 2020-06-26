@@ -2,6 +2,7 @@ package apiserver
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,11 @@ import (
 	"github.com/sirupsen/logrus"
 	"net/http"
 	"strconv"
+	"strings"
+)
+
+var (
+	errNotAuthorized = errors.New("not authorized")
 )
 
 type APIServer struct {
@@ -69,12 +75,13 @@ func (s *APIServer) configureDB() error {
 
 func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/users", s.handleUsersCreate()).Methods("POST")
-	s.router.HandleFunc("/links", s.handleLinksCreate()).Methods("POST")
-	s.router.HandleFunc("/links/{userid}", s.handleGetAllLinks()).Methods("GET")
-	s.router.HandleFunc("/link", s.handleGetLinkInfo()).Methods("GET")
-	s.router.HandleFunc("/link", s.handleLinkDelete()).Methods("DELETE")
+	s.router.HandleFunc("/links", checkAuth(s, s.handleLinksCreate())).Methods("POST")
+	s.router.HandleFunc("/links/{userid}", checkAuth(s, s.handleGetAllLinks())).Methods("GET")
+	s.router.HandleFunc("/link", checkAuth(s, s.handleGetLinkInfo())).Methods("GET")
+	s.router.HandleFunc("/link", checkAuth(s, s.handleLinkDelete())).Methods("DELETE")
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
 	s.router.HandleFunc("/stats/top", s.handleGetLinksTop()).Methods("GET")
+	s.router.HandleFunc("/me/", checkAuth(s, s.handleMe())).Methods("GET")
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
@@ -106,6 +113,45 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 		u.ClearPassword()
 		s.logger.Info(fmt.Sprintf("user with email '%s' successfully created", u.Email))
 		s.respond(w, r, http.StatusCreated, u)
+	}
+}
+
+func checkAuth(s *APIServer, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+		if len(auth) != 2 {
+			s.logger.Error(errNotAuthorized)
+			s.error(w, r, http.StatusUnauthorized, errNotAuthorized)
+			return
+		}
+
+		b, err := base64.StdEncoding.DecodeString(auth[1])
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusUnauthorized, err)
+			return
+		}
+
+		pair := strings.SplitN(string(b), ":", 2)
+		if len(pair) != 2 {
+			s.logger.Error(errNotAuthorized)
+			s.error(w, r, http.StatusUnauthorized, errNotAuthorized)
+			return
+		}
+
+		u := &model.User{
+			Email:    pair[0],
+			Password: pair[1],
+		}
+
+		u, err = u.FindByEmailAndPassword(s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusUnauthorized, err)
+			return
+		}
+
+		next(w, r)
 	}
 }
 
@@ -283,6 +329,23 @@ func (s *APIServer) handleRedirect() http.HandlerFunc {
 
 		s.logger.Info(fmt.Sprintf("redirecting to '%s'", l.LongURL))
 		http.Redirect(w, r, l.LongURL, http.StatusPermanentRedirect)
+	}
+}
+
+func (s *APIServer) handleMe() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
+		b, _ := base64.StdEncoding.DecodeString(auth[1])
+		pair := strings.SplitN(string(b), ":", 2)
+
+		u := &model.User{
+			Email:    pair[0],
+			Password: pair[1],
+		}
+
+		u, _ = u.FindByEmailAndPassword(s.db)
+		u.ClearPassword()
+		s.respond(w, r, http.StatusOK, u)
 	}
 }
 

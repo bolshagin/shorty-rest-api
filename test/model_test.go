@@ -36,6 +36,5 @@ func TestCreateUser(t *testing.T) {
 	var m map[string]interface{}
 	json.Unmarshal(body, &m)
 
-	assert.NotNil(t, m)
 	assert.Equal(t, "example@example.ru", m["email"])
 }

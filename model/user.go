@@ -4,18 +4,23 @@ import (
 	"database/sql"
 	b64 "encoding/base64"
 	"errors"
-	"fmt"
 	validation "github.com/go-ozzo/ozzo-validation"
 	"github.com/go-ozzo/ozzo-validation/is"
 )
 
 type User struct {
-	UserID        int    `json:"userid"`
-	Email         string `json:"email"`
-	Password      string `json:"password,omitempty"`
-	EncryptedPair string `json:"-"`
-	Links         []Link `json:"links,omitempty"`
+	UserID      int    `json:"userid"`
+	Email       string `json:"email"`
+	Password    string `json:"password,omitempty"`
+	AccessToken string `json:"access_token,omitempty"`
+	Links       []Link `json:"links,omitempty"`
 }
+
+var (
+	errUserNotFound = errors.New("user not found")
+	errUserExists   = errors.New("user with email already exists")
+	errEncrypt      = errors.New("cannot encrypt pair login/password")
+)
 
 func (u *User) CreateUser(db *sql.DB) (*User, error) {
 	if err := u.Validate(); err != nil {
@@ -32,16 +37,14 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 	}
 
 	if b {
-		return nil, errors.New(fmt.Sprintf("user with email '%s' already exists", u.Email))
+		return nil, errUserExists
 	}
 
-	query := fmt.Sprintf(
-		"INSERT INTO Users (email, password, encrypted_pair) VALUES ('%s', '%s', '%s')",
+	_, err = db.Exec(
+		"INSERT INTO users (email, password, access_token) VALUES (?, ?, ?)",
 		u.Email,
 		u.Password,
-		u.EncryptedPair)
-
-	_, err = db.Exec(query)
+		u.AccessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -68,12 +71,27 @@ func (u *User) UserExistsByEmail(email string, db *sql.DB) (bool, error) {
 }
 
 func (u *User) Find(id int, db *sql.DB) (*User, error) {
-	if err := db.QueryRow("SELECT userid, email, password, encrypted_pair FROM users WHERE userid = ?",
-		id).Scan(&u.UserID, &u.Email, &u.Password, &u.EncryptedPair); err != nil {
+	if err := db.QueryRow(
+		"SELECT userid, email FROM users WHERE userid = ?",
+		id).Scan(
+		&u.UserID,
+		&u.Email); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("user not found")
+			return nil, errUserNotFound
 		}
+		return nil, err
+	}
+	return u, nil
+}
 
+func (u *User) FindByEmailAndPassword(db *sql.DB) (*User, error) {
+	if err := db.QueryRow(
+		"SELECT userid FROM users WHERE email = ? AND password = ?",
+		u.Email,
+		u.Password).Scan(&u.UserID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, errUserNotFound
+		}
 		return nil, err
 	}
 	return u, nil
@@ -105,7 +123,7 @@ func (u *User) BeforeCreate() error {
 		if err != nil {
 			return err
 		}
-		u.EncryptedPair = enc
+		u.AccessToken = enc
 	}
 	return nil
 }
@@ -120,7 +138,7 @@ func (u *User) Validate() error {
 func encryptString(email, password string) (string, error) {
 	pair := email + ":" + password
 	if len(pair) == 0 {
-		return "", errors.New("cannot encrypt pair login/password")
+		return "", errEncrypt
 	}
 	return b64.StdEncoding.EncodeToString([]byte(pair)), nil
 }

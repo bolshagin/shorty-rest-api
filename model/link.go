@@ -18,6 +18,11 @@ type Link struct {
 	Clicks   int    `json:"n_clicks,omitempty"`
 }
 
+var (
+	errLinkNotFound  = errors.New("link not found")
+	errLinkNotExists = errors.New("link not exists")
+)
+
 func (l *Link) CreateLink(db *sql.DB, r *http.Request) (*Link, error) {
 	if err := l.Validate(); err != nil {
 		return nil, err
@@ -42,9 +47,8 @@ func (l *Link) Find(id int, db *sql.DB) (*Link, error) {
 	if err := db.QueryRow("SELECT linkid, long_url, short_url, userid FROM links WHERE linkid = ?",
 		id).Scan(&l.LinkID, &l.LongURL, &l.ShortURL, &l.UserID); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("link not found")
+			return nil, errLinkNotFound
 		}
-
 		return nil, err
 	}
 	return l, nil
@@ -59,7 +63,7 @@ func (l *Link) FindLinkClicks(id int, short string, db *sql.DB) (*Link, error) {
 
 	if err := db.QueryRow(query).Scan(&l.LinkID, &l.LongURL, &l.ShortURL, &l.UserID, &l.Clicks); err != nil {
 		if err == sql.ErrNoRows {
-			return nil, errors.New("link not found")
+			return nil, errLinkNotFound
 		}
 		return nil, err
 	}
@@ -91,6 +95,19 @@ func FindLinksTop(db *sql.DB) (*[]Link, error) {
 
 func (l *Link) DeleteByUserIDAndShort(id int, short string, db *sql.DB) error {
 	_, err := db.Query("DELETE FROM links WHERE userid = ? AND short_url = ?", id, short)
+	if err != nil {
+		return err
+	}
+
+	var count = 0
+	if err := db.QueryRow("SELECT ROW_COUNT()").Scan(&count); err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return errLinkNotExists
+	}
+
 	return err
 }
 
