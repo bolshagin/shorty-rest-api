@@ -95,19 +95,6 @@ func FindLinksTop(db *sql.DB) (*[]Link, error) {
 
 func (l *Link) DeleteByUserIDAndShort(id int, short string, db *sql.DB) error {
 	_, err := db.Query("DELETE FROM links WHERE userid = ? AND short_url = ?", id, short)
-	if err != nil {
-		return err
-	}
-
-	var count = 0
-	if err := db.QueryRow("SELECT ROW_COUNT()").Scan(&count); err != nil {
-		return err
-	}
-
-	if count == 0 {
-		return errLinkNotExists
-	}
-
 	return err
 }
 
@@ -116,4 +103,8 @@ func (l *Link) Validate() error {
 		l,
 		validation.Field(&l.LongURL, validation.Required, is.URL),
 	)
+}
+
+func (l *Link) ClearUserID() {
+	l.UserID = 0
 }

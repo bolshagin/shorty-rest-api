@@ -27,20 +27,11 @@ func (u *User) CreateUser(db *sql.DB) (*User, error) {
 		return nil, err
 	}
 
-	if err := u.BeforeCreate(); err != nil {
+	if err := u.BeforeCreate(db); err != nil {
 		return nil, err
 	}
 
-	b, err := u.UserExistsByEmail(u.Email, db)
-	if err != nil {
-		return nil, err
-	}
-
-	if b {
-		return nil, errUserExists
-	}
-
-	_, err = db.Exec(
+	_, err := db.Exec(
 		"INSERT INTO users (email, password, access_token) VALUES (?, ?, ?)",
 		u.Email,
 		u.Password,
@@ -117,7 +108,7 @@ func (u *User) FindAllLinks(id int, db *sql.DB) (*User, error) {
 	return u, nil
 }
 
-func (u *User) BeforeCreate() error {
+func (u *User) BeforeCreate(db *sql.DB) error {
 	if len(u.Password) > 0 {
 		enc, err := encryptString(u.Email, u.Password)
 		if err != nil {
@@ -125,6 +116,16 @@ func (u *User) BeforeCreate() error {
 		}
 		u.AccessToken = enc
 	}
+
+	b, err := u.UserExistsByEmail(u.Email, db)
+	if err != nil {
+		return err
+	}
+
+	if b {
+		return errUserExists
+	}
+
 	return nil
 }
 

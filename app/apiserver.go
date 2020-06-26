@@ -18,6 +18,8 @@ import (
 
 var (
 	errNotAuthorized = errors.New("not authorized")
+	errInvalidUserID = errors.New("invalid userid")
+	errCantDecodeURL = errors.New("cannot decode short url")
 )
 
 type APIServer struct {
@@ -54,10 +56,12 @@ func (s *APIServer) Start() error {
 }
 
 func getConnectionString(config *Config) string {
-	return fmt.Sprintf("%s:%s@/%s",
+	return fmt.Sprintf(
+		"%s:%s@/%s",
 		config.User,
 		config.Password,
-		config.DBName)
+		config.DBName,
+	)
 }
 
 func (s *APIServer) configureDB() error {
@@ -82,6 +86,35 @@ func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
 	s.router.HandleFunc("/stats/top", s.handleGetLinksTop()).Methods("GET")
 	s.router.HandleFunc("/me/", checkAuth(s, s.handleMe())).Methods("GET")
+}
+
+func checkAuth(s *APIServer, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+
+		s.logger.Info(fmt.Sprintf("try authorizate user with token `%v`", token))
+		email, password, err := s.decodeToken(token)
+
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusUnauthorized, err)
+			return
+		}
+
+		u := &model.User{
+			Email:    email,
+			Password: password,
+		}
+
+		u, err = u.FindByEmailAndPassword(s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusUnauthorized, err)
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 func (s *APIServer) handleUsersCreate() http.HandlerFunc {
@@ -116,48 +149,8 @@ func (s *APIServer) handleUsersCreate() http.HandlerFunc {
 	}
 }
 
-func checkAuth(s *APIServer, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
-		if len(auth) != 2 {
-			s.logger.Error(errNotAuthorized)
-			s.error(w, r, http.StatusUnauthorized, errNotAuthorized)
-			return
-		}
-
-		b, err := base64.StdEncoding.DecodeString(auth[1])
-		if err != nil {
-			s.logger.Error(err)
-			s.error(w, r, http.StatusUnauthorized, err)
-			return
-		}
-
-		pair := strings.SplitN(string(b), ":", 2)
-		if len(pair) != 2 {
-			s.logger.Error(errNotAuthorized)
-			s.error(w, r, http.StatusUnauthorized, errNotAuthorized)
-			return
-		}
-
-		u := &model.User{
-			Email:    pair[0],
-			Password: pair[1],
-		}
-
-		u, err = u.FindByEmailAndPassword(s.db)
-		if err != nil {
-			s.logger.Error(err)
-			s.error(w, r, http.StatusUnauthorized, err)
-			return
-		}
-
-		next(w, r)
-	}
-}
-
 func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 	type request struct {
-		UserID  int    `json:"userid"`
 		LongURL string `json:"long_url"`
 	}
 
@@ -171,8 +164,14 @@ func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 			return
 		}
 
-		u := &model.User{}
-		u, err := u.Find(req.UserID, s.db)
+		token := r.Header.Get("Authorization")
+		email, password, _ := s.decodeToken(token)
+
+		u := &model.User{
+			Email:    email,
+			Password: password,
+		}
+		u, err := u.FindByEmailAndPassword(s.db)
 		if err != nil {
 			s.logger.Error(err)
 			s.error(w, r, http.StatusInternalServerError, err)
@@ -190,6 +189,7 @@ func (s *APIServer) handleLinksCreate() http.HandlerFunc {
 			return
 		}
 
+		l.ClearUserID()
 		s.logger.Info(fmt.Sprintf("link with url '%s' successfully created", l.LongURL))
 		s.respond(w, r, http.StatusCreated, l)
 	}
@@ -201,7 +201,7 @@ func (s *APIServer) handleGetAllLinks() http.HandlerFunc {
 		id, err := strconv.Atoi(vars["userid"])
 		if err != nil {
 			s.logger.Error(err)
-			s.error(w, r, http.StatusBadRequest, errors.New("invalid user id"))
+			s.error(w, r, http.StatusBadRequest, errInvalidUserID)
 			return
 		}
 
@@ -222,7 +222,6 @@ func (s *APIServer) handleGetAllLinks() http.HandlerFunc {
 			return
 		}
 		u.ClearPassword()
-
 		s.respond(w, r, http.StatusOK, u)
 	}
 }
@@ -275,7 +274,6 @@ func (s *APIServer) handleGetLinkInfo() http.HandlerFunc {
 
 func (s *APIServer) handleLinkDelete() http.HandlerFunc {
 	type request struct {
-		UserID   int    `json:"userid"`
 		ShortURL string `json:"short_url"`
 	}
 
@@ -289,15 +287,28 @@ func (s *APIServer) handleLinkDelete() http.HandlerFunc {
 			return
 		}
 
+		token := r.Header.Get("Authorization")
+		email, password, _ := s.decodeToken(token)
+		u := &model.User{
+			Email:    email,
+			Password: password,
+		}
+		u, err := u.FindByEmailAndPassword(s.db)
+		if err != nil {
+			s.logger.Error(err)
+			s.error(w, r, http.StatusInternalServerError, err)
+			return
+		}
+
 		l := &model.Link{}
-		if err := l.DeleteByUserIDAndShort(req.UserID, req.ShortURL, s.db); err != nil {
+		if err := l.DeleteByUserIDAndShort(u.UserID, req.ShortURL, s.db); err != nil {
 			s.logger.Error(err)
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}
 
 		s.logger.Info(
-			fmt.Sprintf("link with short_url '%v' and userid '%v' has been deleted", req.ShortURL, req.UserID),
+			fmt.Sprintf("link with short_url '%v' and userid '%v' has been deleted", req.ShortURL, u.UserID),
 		)
 		s.respond(w, r, http.StatusOK, map[string]string{"result": "deleted"})
 
@@ -309,7 +320,8 @@ func (s *APIServer) handleRedirect() http.HandlerFunc {
 		vars := mux.Vars(r)
 		id, err := tools.Decode(vars["short_url"])
 		if err != nil {
-			s.error(w, r, http.StatusBadRequest, errors.New("cannot decode short url"))
+			s.logger.Error(errCantDecodeURL)
+			s.error(w, r, http.StatusBadRequest, errCantDecodeURL)
 			return
 		}
 
@@ -334,13 +346,12 @@ func (s *APIServer) handleRedirect() http.HandlerFunc {
 
 func (s *APIServer) handleMe() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth := strings.SplitN(r.Header.Get("Authorization"), " ", 2)
-		b, _ := base64.StdEncoding.DecodeString(auth[1])
-		pair := strings.SplitN(string(b), ":", 2)
+		token := r.Header.Get("Authorization")
+		email, password, _ := s.decodeToken(token)
 
 		u := &model.User{
-			Email:    pair[0],
-			Password: pair[1],
+			Email:    email,
+			Password: password,
 		}
 
 		u, _ = u.FindByEmailAndPassword(s.db)
@@ -358,4 +369,22 @@ func (s *APIServer) respond(w http.ResponseWriter, r *http.Request, code int, da
 	if data != nil {
 		json.NewEncoder(w).Encode(data)
 	}
+}
+
+func (s *APIServer) decodeToken(token string) (string, string, error) {
+	auth := strings.SplitN(token, " ", 2)
+	if len(auth) != 2 {
+		return "", "", errNotAuthorized
+	}
+
+	b, err := base64.StdEncoding.DecodeString(auth[1])
+	if err != nil {
+		return "", "", errNotAuthorized
+	}
+
+	pair := strings.SplitN(string(b), ":", 2)
+	if len(pair) != 2 {
+		return "", "", errNotAuthorized
+	}
+	return pair[0], pair[1], nil
 }
