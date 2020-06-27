@@ -84,7 +84,7 @@ func (s *APIServer) configureRouter() {
 	s.router.HandleFunc("/link", checkAuth(s, s.handleGetLinkInfo())).Methods("GET")
 	s.router.HandleFunc("/link", checkAuth(s, s.handleLinkDelete())).Methods("DELETE")
 	s.router.HandleFunc("/{short_url}", s.handleRedirect()).Methods("GET")
-	s.router.HandleFunc("/stats/top", s.handleGetLinksTop()).Methods("GET")
+	s.router.HandleFunc("/stats/top", checkAuth(s, s.handleGetLinksTop())).Methods("GET")
 	s.router.HandleFunc("/me/", checkAuth(s, s.handleMe())).Methods("GET")
 }
 
@@ -264,6 +264,7 @@ func (s *APIServer) handleGetLinkInfo() http.HandlerFunc {
 			s.error(w, r, http.StatusInternalServerError, err)
 			return
 		}
+		l.ClearUserID()
 
 		s.logger.Info(
 			fmt.Sprintf("link with short_url '%v' and userid '%v' are founded", req.ShortURL, req.UserID),

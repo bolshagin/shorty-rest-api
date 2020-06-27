@@ -4,6 +4,6 @@ build:
 
 .PHONY: test
 test:
-	go test -v -race -timeout 30s .\test\model_test.go
+	go test -count=1 -v -race -timeout 30s ./...
 
 .DEFAULT_GOAL := build

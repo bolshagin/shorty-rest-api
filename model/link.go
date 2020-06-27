@@ -56,7 +56,7 @@ func (l *Link) Find(id int, db *sql.DB) (*Link, error) {
 
 func (l *Link) FindLinkClicks(id int, short string, db *sql.DB) (*Link, error) {
 	query := fmt.Sprintf(
-		"SELECT l.linkid, MAX(l.long_url), MAX(short_url), MAX(l.userid), COUNT(l.linkid) "+
+		"SELECT l.linkid, MAX(l.long_url), MAX(short_url), MAX(l.userid), COUNT(c.linkid) "+
 			"FROM links l LEFT JOIN clicks c ON l.linkid = c.linkid "+
 			"WHERE l.userid = %v AND l.short_url = '%v'"+
 			"GROUP BY l.linkid", id, short)
@@ -94,8 +94,37 @@ func FindLinksTop(db *sql.DB) (*[]Link, error) {
 }
 
 func (l *Link) DeleteByUserIDAndShort(id int, short string, db *sql.DB) error {
-	_, err := db.Query("DELETE FROM links WHERE userid = ? AND short_url = ?", id, short)
+	b, err := l.ExistsByUserIDAndShort(id, short, db)
+	if err != nil {
+		return err
+	}
+
+	if !b {
+		return errLinkNotExists
+	}
+
+	_, err = db.Query(
+		"DELETE l, c FROM links l LEFT JOIN clicks c on l.linkid = c.linkid WHERE userid = ? AND short_url = ?",
+		id,
+		short,
+	)
 	return err
+}
+
+func (l *Link) ExistsByUserIDAndShort(id int, short string, db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(
+		"SELECT COUNT(1) FROM links WHERE userid = ? AND short_url = ?",
+		id,
+		short).Scan(&count); err != nil {
+		return false, err
+	}
+
+	if count > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (l *Link) Validate() error {
